@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebVTT 轉 ASS 轉換工具</title>
+    <style>
+        body {
+            font-family: 'Microsoft JhengHei', Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        textarea {
+            width: 100%;
+            height: 150px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            resize: vertical;
+            font-family: monospace;
+        }
+        .textarea-container {
+            position: relative;
+        }
+        .drop-zone {
+            border: 2px dashed #aaa;
+            background-color: #f8f8f8;
+            transition: all 0.3s;
+        }
+        .drop-zone.active {
+            border-color: #4CAF50;
+            background-color: rgba(76, 175, 80, 0.1);
+        }
+        .drop-instruction {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            color: #666;
+            text-align: center;
+            opacity: 0.7;
+            display: none;
+        }
+        .drop-zone .drop-instruction {
+            display: block;
+        }
+        button {
+            display: inline-block;
+            margin: 10px 5px;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .download-btn {
+            background-color: #2196F3;
+        }
+        .download-btn:hover {
+            background-color: #0b7dda;
+        }
+        .download-btn:disabled {
+            background-color: #cccccc;
+            color: #666666;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+        .download-btn:disabled:hover {
+            background-color: #cccccc;
+        }
+        .button-container {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .output-container {
+            margin-top: 20px;
+        }
+        .instructions {
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+        }
+        .file-info {
+            margin-top: 10px;
+            font-style: italic;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <h1>WebVTT 轉 ASS 轉換工具</h1>
+
+    <div>
+        <h3>WebVTT 輸入:</h3>
+        <div class="textarea-container">
+            <textarea id="input" class="drop-zone" placeholder="將 WebVTT 檔案拖曳至此，或直接粘貼內容..."></textarea>
+            <div class="drop-instruction">
+                <div>拖曳 WebVTT 檔案到此處</div>
+                <div>(或點擊手動輸入)</div>
+            </div>
+        </div>
+        <div id="fileInfo" class="file-info"></div>
+    </div>
+
+    <div class="button-container">
+        <button id="convert">轉換</button>
+    </div>
+
+    <div class="output-container">
+        <h3>ASS 輸出:</h3>
+        <textarea id="output" aria-label="ASS 輸出內容" placeholder="轉換後的 ASS 內容將顯示在此處" readonly></textarea>
+        <div class="button-container">
+            <button id="download" class="download-btn" disabled>下載 ASS 檔案</button>
+        </div>
+    </div>
+
+    <script>
+        // 拖曳上傳處理
+        const inputTextarea = document.getElementById('input');
+        const outputTextarea = document.getElementById('output');
+        const convertButton = document.getElementById('convert');
+        const downloadButton = document.getElementById('download');
+        const fileInfo = document.getElementById('fileInfo');
+
+        let originalFileName = '';
+
+        // 拖曳事件處理
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            inputTextarea.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            inputTextarea.addEventListener(eventName, () => {
+                inputTextarea.classList.add('active');
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            inputTextarea.addEventListener(eventName, () => {
+                inputTextarea.classList.remove('active');
+            });
+        });
+
+        // 處理檔案拖放
+        inputTextarea.addEventListener('drop', handleDrop);
+
+        function handleDrop(e) {
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                const file = files[0];
+
+                // 檢查文件類型
+                if (file.name.endsWith('.vtt') || file.name.endsWith('.webvtt') || file.type === 'text/vtt') {
+                    handleFile(file);
+                } else {
+                    fileInfo.textContent = '錯誤：請上傳 .vtt 或 .webvtt 格式的檔案';
+                    fileInfo.style.color = 'red';
+                }
+            }
+        }
+
+        function handleFile(file) {
+            originalFileName = file.name.replace(/\.[^/.]+$/, ""); // 移除副檔名
+            fileInfo.textContent = `已載入檔案: ${file.name}`;
+            fileInfo.style.color = '#666';
+
+            // 讀取檔案內容
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                inputTextarea.value = e.target.result;
+                // 移除拖曳區域樣式
+                inputTextarea.classList.remove('drop-zone');
+
+                // 檔案讀取完成後，自動觸發轉換
+                const webvttContent = inputTextarea.value.trim();
+                const assContent = convertWebVTTtoASS(webvttContent);
+                outputTextarea.value = assContent;
+
+                // 啟用下載按鈕
+                if (assContent && !assContent.startsWith("無法解析") && !assContent.startsWith("請輸入")) {
+                    downloadButton.disabled = false;
+                } else {
+                    downloadButton.disabled = true;
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // 當輸入框獲得焦點時移除拖曳區域樣式
+        inputTextarea.addEventListener('focus', function() {
+            this.classList.remove('drop-zone');
+        });
+
+        // 當輸入框失去焦點且為空時恢復拖曳區域樣式
+        inputTextarea.addEventListener('blur', function() {
+            if (this.value === '') {
+                this.classList.add('drop-zone');
+            }
+        });
+
+        // 初始時添加拖曳區域樣式
+        if (inputTextarea.value === '') {
+            inputTextarea.classList.add('drop-zone');
+        }
+
+        // 轉換功能
+        convertButton.addEventListener('click', function() {
+            const webvttContent = inputTextarea.value.trim();
+            const assContent = convertWebVTTtoASS(webvttContent);
+            outputTextarea.value = assContent;
+
+            // 啟用下載按鈕
+            if (assContent && !assContent.startsWith("無法解析") && !assContent.startsWith("請輸入")) {
+                downloadButton.disabled = false;
+            } else {
+                downloadButton.disabled = true;
+            }
+        });
+
+        // 下載功能
+        downloadButton.addEventListener('click', function() {
+            const assContent = outputTextarea.value;
+
+            if (!assContent) {
+                alert("沒有內容可供下載");
+                return;
+            }
+            // 添加 BOM 標記並建立 Blob 物件
+            const BOM = new Uint8Array([0xEF, 0xBB, 0xBF]);
+            const contentWithBOM = new Uint8Array(BOM.length + new TextEncoder().encode(assContent).length);
+            contentWithBOM.set(BOM);
+            contentWithBOM.set(new TextEncoder().encode(assContent), BOM.length);
+
+            // 建立下載 URL
+            const blob = new Blob([contentWithBOM], {type: 'text/plain;charset=utf-8'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+
+            // 設定檔案名稱
+            let downloadName = originalFileName || 'subtitle';
+            a.download = downloadName + '.ass';
+
+            // 模擬點擊下載
+            document.body.appendChild(a);
+            a.click();
+
+            // 清理
+            URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        });
+
+        function convertWebVTTtoASS(webvtt) {
+            // 檢查輸入是否為空
+            if (!webvtt) {
+                return "請輸入 WebVTT 內容";
+            }
+
+            // 建立 ASS 頭部
+            let assOutput = "[Script Info]\n";
+            assOutput += "Title: Converted from WebVTT\n";
+            assOutput += "ScriptType: v4.00+\n";
+            assOutput += "WrapStyle: 0\n";
+            assOutput += "PlayResX: 1280\n";
+            assOutput += "PlayResY: 720\n";
+            assOutput += "ScaledBorderAndShadow: yes\n\n";
+
+            // 添加樣式
+            assOutput += "[V4+ Styles]\n";
+            assOutput += "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\n";
+            assOutput += "Style: Default, 微軟正黑體,16,&H0080FFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,1,0,1,2,0,2,1,1,6,1\n";
+            assOutput += "Style: Secondary,Helvetica,12,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,2,1,1,6,1\n\n";
+
+            // 添加事件部分
+            assOutput += "[Events]\n";
+            assOutput += "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n";
+
+            // 分割行並移除 WEBVTT 標頭
+            const lines = webvtt.split('\n');
+            let i = 0;
+
+            // 跳過 WEBVTT 標頭
+            while (i < lines.length && !lines[i].includes('-->')) {
+                i++;
+            }
+
+            let dialogueCount = 0;
+            let currentLine = '';
+            let startTime = '';
+            let endTime = '';
+
+            // 解析每個字幕條目
+            while (i < lines.length) {
+                const line = lines[i].trim();
+
+                // 如果是時間戳行
+                if (line.includes('-->')) {
+                    const timesParts = line.split('-->');
+                    if (timesParts.length === 2) {
+                        startTime = convertVttTimeToAss(timesParts[0].trim());
+                        endTime = convertVttTimeToAss(timesParts[1].trim().split(' ')[0]); // 忽略可能的時間後屬性
+                        currentLine = '';
+                    }
+                }
+                // 如果是內容行且我們已經有了時間戳
+                else if (line !== '' && startTime && endTime) {
+                    // 如果當前行不為空，添加換行
+                    if (currentLine !== '') {
+                        currentLine += '\\N';
+                    }
+                    currentLine += line;
+                }
+                // 如果是空行且我們已經收集了整個字幕
+                else if (line === '' && currentLine !== '' && startTime && endTime) {
+                    // 添加到 ASS 輸出
+                    assOutput += `Dialogue: 0,${startTime},${endTime},Default,,0,0,0,,${escapeAssText(currentLine)}\n`;
+                    dialogueCount++;
+
+                    // 重置
+                    currentLine = '';
+                    startTime = '';
+                    endTime = '';
+                }
+
+                i++;
+            }
+
+            // 處理最後一個字幕（如果有）
+            if (currentLine !== '' && startTime && endTime) {
+                assOutput += `Dialogue: 0,${startTime},${endTime},Default,,0,0,0,,${escapeAssText(currentLine)}\n`;
+                dialogueCount++;
+            }
+
+            // 如果沒有找到對話行
+            if (dialogueCount === 0) {
+                return "無法解析 WebVTT 內容。請確保格式正確。";
+            }
+
+            return assOutput;
+        }
+
+        // 將 WebVTT 時間格式轉換為 ASS 時間格式
+        function convertVttTimeToAss(vttTime) {
+            // 移除毫秒後面的部分（如果有）
+            vttTime = vttTime.split(' ')[0];
+
+            // 處理小時:分鐘:秒.毫秒格式
+            let parts = vttTime.split(':');
+            let hours, minutes, seconds, milliseconds;
+
+            if (parts.length === 3) {
+                hours = parseInt(parts[0]);
+                minutes = parseInt(parts[1]);
+                let secondsParts = parts[2].split('.');
+                seconds = parseInt(secondsParts[0]);
+                milliseconds = secondsParts[1] ? parseInt(secondsParts[1].padEnd(2, '0')) : 0;
+            } else if (parts.length === 2) {
+                hours = 0;
+                minutes = parseInt(parts[0]);
+                let secondsParts = parts[1].split('.');
+                seconds = parseInt(secondsParts[0]);
+                milliseconds = secondsParts[1] ? parseInt(secondsParts[1].padEnd(2, '0')) : 0;
+            } else {
+                return "00:00:00.00"; // 錯誤時的默認值
+            }
+
+            // 格式化為 ASS 時間格式 (h:mm:ss.cc)
+            return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${Math.floor(milliseconds / 10).toString().padStart(2, '0')}`;
+        }
+
+        // 轉義 ASS 文本中的特殊字符
+        function escapeAssText(text) {
+            // 替換 {} 為 \{ \}
+            text = text.replace(/{/g, '\\{').replace(/}/g, '\\}');
+            return text;
+        }
+    </script>
+</body>
+</html>
